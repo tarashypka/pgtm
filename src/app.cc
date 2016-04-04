@@ -1,14 +1,14 @@
-#include "string.h"
-#include "libpq-fe.h"   /* PGconn */
-#include "session.h"
-#include "tm.h"
+#include "session.h"    /* struct PGsession, open, exec, close */
+#include <stdio.h>      /* NULL */
+#include "libpq-fe.h"   /* PGresult, PQclear */
 
 #define HOST    "localhost"
 #define PORT    "5432"
 #define USER    "pti"
 #define PWD     "12345678"
 
-int main(int argc, char **argv) {
+int main(int argc, char **argv)
+{
     struct PGsession
     ses_1 = { HOST, PORT,   "fly_db", USER, PWD, NULL },
     ses_2 = { HOST, PORT, "hotel_db", USER, PWD, NULL };
@@ -16,9 +16,9 @@ int main(int argc, char **argv) {
     open(&ses_2);
 
     PGresult *res;
-    res = exec(&ses_1, "BEGIN");
-    PQclear(res);
     res = exec(&ses_2, "BEGIN");
+    PQclear(res);
+    res = exec(&ses_1, "BEGIN");
     PQclear(res);
 
     res = exec(&ses_1, "INSERT INTO fly_booking " 

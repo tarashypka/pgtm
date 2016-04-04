@@ -1,7 +1,7 @@
-#ifndef SESSION
-#define SESSION
+#ifndef SESSION_H
+#define SESSION_H
 
-#include "libpq-fe.h"   /* PGconn */
+#include "libpq-fe.h"   /* PGconn, PGresult */
 
 struct PGsession {
     const char *host;

@@ -1,16 +1,16 @@
-#include <stdio.h>      /* printf, fprintf, stderr */
+#include "session.h"    /* struct PGsession */
+#include "libpq-fe.h"   /* PQfunctions, PGtypes */
+#include <stdio.h>      /* NULL, fprintf, stderr, printf */
 #include <stdlib.h>     /* exit, EXIT_FAILURE */
 #include <string.h>     /* strcmp */
-#include "session.h"    /* struct PGsession */
 #include "tm.h"         /* tm_init, tm_commit */
-#include "libpq-fe.h"   /* PQfunctions, PGtypes, 
-                           CONNECTION_OK, PGRES_COMMAND_OK */
 
-/* set 0 if for non-distributed transactions */
-#define TM_     1
+/* should be 0, if transaction is non-distributed */
+#define TM      1
 
 /* open: set PGsession connection */
-void open(struct PGsession *ses) {
+void open(struct PGsession *ses)
+{
     ses->conn = PQsetdbLogin(ses->host,
                              ses->port,
                              NULL,          /* default pgoptions */
@@ -28,18 +28,20 @@ void open(struct PGsession *ses) {
 }
 
 /* close: finish PGsession connection & free memory from it */
-void close(struct PGsession *ses) {
+void close(struct PGsession *ses)
+{
     PQfinish(ses->conn);
     printf("%8s: close: disconnected\n", ses->db_name);
 }
 
 /* exec: execute pgSQL command, print & return result */
-PGresult *exec(struct PGsession *ses, const char *que) {
+PGresult *exec(struct PGsession *ses, const char *que)
+{
     PGresult *res;
 
-    if (!(strcmp(que, "BEGIN")) && TM_)
+    if (!(strcmp(que, "BEGIN")) && TM)
         tm_init(ses);
-    else if (!(strcmp(que, "COMMIT")) && TM_) {
+    else if (!(strcmp(que, "COMMIT")) && TM) {
         tm_commit(ses);
         return NULL;
     }

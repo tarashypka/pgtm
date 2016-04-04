@@ -1,12 +1,11 @@
-#include "session.h"    /* PGsession */
-#include <string.h>     /* strcmp, strcpy, strcat */
-#include <stdio.h>      /* printf */
-#include "libpq-fe.h"   /* PGconn, PGresult, PQresultstate, PQclear, 
-                           PQcmdStatus */
+#include "session.h"    /* struct PGsession */
+#include <stdio.h>      /* NULL, printf */
+#include "libpq-fe.h"   /* PQfunctions, PGtypes */
+#include <string.h>     /* strcmp, strcat, strcpy */
 
 #define MAX_COHORTS     5
 
-/* cohort/coordinator states */
+/* cohort's possible states */
 #define INIT        0
 #define QUERY       1
 #define WAIT        2
@@ -15,14 +14,13 @@
 #define ABORTED     5
 #define COMMITTED   6
 
-static int state = INIT;   /* coordinator state */
-
-struct cohort {
-    PGsession *ses;
+static struct cohort {
+    struct PGsession *ses;
     int state;
-} cohorts[MAX_COHORTS], *cnext = cohorts;
+} cohorts[MAX_COHORTS], *cnext = cohorts, coordinator = { NULL, INIT };
 
-struct cohort *get_cohort(const char *name) {
+struct cohort *get_cohort(const char *name)
+{
     struct cohort *c;
 
     for (c = cnext; c > cohorts; c--)
@@ -31,7 +29,14 @@ struct cohort *get_cohort(const char *name) {
     return NULL;
 }
 
-void tm_init(PGsession *ses) {
+void set_state(struct cohort *c, int state)
+{
+    c->state = state;
+    /* write to log */
+}
+
+void tm_init(struct PGsession *ses)
+{
     if (get_cohort(ses->db_name) != NULL)
         printf("%8s: tm_init: error: duplicate cohort\n", ses->db_name);
     else if (cnext >= cohorts + MAX_COHORTS)
@@ -43,103 +48,87 @@ void tm_init(PGsession *ses) {
     }
 }
 
-void tm_commit(PGsession *ses) {
-    int commit_request_all(void), commit_all(void), abort_all(void);
+void tm_commit(PGsession *ses)
+{
+    void commit_request(struct cohort *);
+    bool commit(struct cohort *), abort(struct cohort *);
     struct cohort *c;
 
-    get_cohort(ses->db_name)->state = QUERY;
+    set_state(get_cohort(ses->db_name), QUERY);
     for (c = cnext; c > cohorts; c--)
         if ((c-1)->state == INIT) {
             printf("%8s: tm_commit: cohorts not ready \n", ses->db_name);
             return;
         }
-    state = QUERY;
-    switch (commit_request_all()) {
+    set_state(&coordinator, QUERY);
+    commit_request(cnext-1);
+    switch (coordinator.state) {
         case QUERY:
             printf("%8s: tm_commit: prepare error\n", ses->db_name);
             break;
         case WAIT:
+            set_state(&coordinator, COMMIT);
             printf("%8s: tm_commit: commit all\n", ses->db_name);
-            state = COMMIT;
-            commit_all();
+            if (commit(cnext-1))
+                set_state(&coordinator, COMMITTED);
             break;
         case ABORT:
             printf("%8s: tm_commit: abort all\n", ses->db_name);
-            abort_all();
+            if (abort(cnext-1))
+                set_state(&coordinator, ABORTED);
             break;
         default:
             break;
     }
 }
 
-int commit_request_all(void) {
-    int commit_request(struct cohort *c);
-    struct cohort *c;
+void commit_request(struct cohort *c)
+{
+    char *status, que[100] = "PREPARE TRANSACTION '";
 
-    for (c=cnext; c>cohorts && (state=commit_request(c-1)) == WAIT; c--)
-        ;
-    return state;
-}
-
-void commit_all(void) {
-    int commit(struct cohort *c);
-    struct cohort *c;
-
-    for (c = cnext; c > cohorts; c--)
-        if (commit(c-1) != COMMIT)
-            return;
-    state = COMMITTED;
-    cnext = cohorts;
-}
-
-void abort_all(void) {
-    int abort(struct cohort *c);
-    struct cohort *c;
-
-    for (c = cnext; c > cohorts; c--)
-        if (abort(c-1) != ABORT) 
-            return;
-    state = ABORTED;
-    cnext = cohorts;
-}
-
-int commit_request(struct cohort *c) {
-    char *status;
-    char que[100];
-
-    strcpy(que, "PREPARE TRANSACTION '");
     strcat(que, c->ses->db_name);
     strcat(que, "'");
     status = PQcmdStatus(exec(c->ses, que));
-    if (!strcmp(status, "PREPARE TRANSACTION"))
-        return c->state = WAIT;
-    return c->state = (!strcmp(status, "ROLLBACK")) ? ABORT : QUERY;
-}
-
-int commit(struct cohort *c) {
-    char *status;
-    char que[100];
-
-    strcpy(que, "COMMIT PREPARED '");
-    strcat(que, c->ses->db_name);
-    strcat(que, "'");
-    status = PQcmdStatus(exec(c->ses, que));
-    return c->state = (!strcmp(status, "COMMIT PREPARED")) ? COMMIT : WAIT;
-}
-
-int abort(struct cohort *c) {
-    char *status;
-    char que[100];
-
-    if (c->state == ABORT)  /* already aborted */
-        return ABORT;
-    else if (c->state == QUERY) {   /* commit request not sent */
-        status = PQcmdStatus(exec(c->ses, "ROLLBACK"));
-        return c->state = (!strcmp(status, "ROLLBACK")) ? ABORT : WAIT;
+    if (!strcmp(status, "PREPARE TRANSACTION")) {
+        set_state(c, WAIT);
+        if (c > cohorts)
+            commit_request(c-1);
+        else
+            set_state(&coordinator, WAIT);
     }
+    else if (!strcmp(status, "ROLLBACK")) {
+        set_state(c, ABORT);
+        set_state(&coordinator, ABORT);
+    }
+    else
+        set_state(&coordinator, QUERY);
+}
+
+bool commit(struct cohort *c)
+{
+    char *status, que[100] = "COMMIT PREPARED '";
+
+    strcat(que, c->ses->db_name);
+    strcat(que, "'");
+    status = PQcmdStatus(exec(c->ses, que));
+    set_state(c, !strcmp(status, "COMMIT PREPARED") ? COMMIT : WAIT);
+    return (c->state == COMMIT) && (c == cohorts || commit(c-1));
+}
+
+bool abort(struct cohort *c)
+{
+    char *status, que[100];
+
+    if (c->state == QUERY) {    /* commit request not sent */
+        status = PQcmdStatus(exec(c->ses, "ROLLBACK"));
+        set_state(c, !strcmp(status, "ROLLBACK") ? ABORT : QUERY);
+    }
+    if (c->state != WAIT)       /* already aborted */
+        return c->state == ABORT;
     strcpy(que, "ROLLBACK PREPARED '");
     strcat(que, c->ses->db_name);
     strcat(que, "'");
     status = PQcmdStatus(exec(c->ses, que));
-    return c->state = (!strcmp(status, "ROLLBACK PREPARED")) ? ABORT : WAIT;
+    set_state(c, !strcmp(status, "ROLLBACK PREPARED") ? ABORT : WAIT);
+    return (c->state == ABORT) && (c == cohorts || abort(c-1));
 }

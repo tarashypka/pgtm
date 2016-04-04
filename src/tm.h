@@ -1,7 +1,7 @@
-#ifndef TM
-#define TM
+#ifndef TM_H
+#define TM_H
 
-#include "session.h"    /* PGsession */
+#include "session.h"    /* struct PGsession */
 
 void tm_init  (PGsession *ses);
 void tm_commit(PGsession *ses);
