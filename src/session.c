@@ -1,5 +1,5 @@
 #include "session.h"    /* struct PGsession, logs */
-#include "libpq-fe.h"   /* PQfunctions, PGtypes */
+#include <libpq-fe.h>   /* PQfunctions, PGtypes */
 #include <stdio.h>      /* NULL, fprintf, stderr, printf, fopen, fclose */
 #include <stdlib.h>     /* exit, EXIT_FAILURE */
 #include <string.h>     /* strcmp */
@@ -12,7 +12,7 @@
 static FILE *logs;
 
 /* open: set PGsession connection */
-void open(PGsession *ses)
+void open(struct PGsession *ses)
 {
     ses->conn = PQsetdbLogin(ses->host,
                              ses->port,
@@ -37,7 +37,7 @@ void open(PGsession *ses)
 }
 
 /* close: finish PGsession connection & free memory from it */
-void close(PGsession *ses)
+void close(struct PGsession *ses)
 {
     PQfinish(ses->conn);
     logs = fopen(ses->logs, "a+");
@@ -47,7 +47,7 @@ void close(PGsession *ses)
 }
 
 /* exec: execute pgSQL command, print & return result */
-PGresult *exec(PGsession *ses, const char *que)
+PGresult *exec(struct PGsession *ses, const char *que)
 {
     PGresult *res;
 

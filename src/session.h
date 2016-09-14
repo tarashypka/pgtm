@@ -1,7 +1,9 @@
 #ifndef SESSION_H
 #define SESSION_H
 
-#include "libpq-fe.h"   /* PGconn, PGresult */
+#include <libpq-fe.h>   /* PGconn, PGresult */
+
+typedef enum { false, true } bool;
 
 struct PGsession {
     const char *host;
@@ -13,9 +15,9 @@ struct PGsession {
     char logs[1000];
 };
 
-void  open(PGsession *ses);
-void close(PGsession *ses);
-PGresult *exec(PGsession *ses, const char *que);
+void  open(struct PGsession *ses);
+void close(struct PGsession *ses);
+PGresult *exec(struct PGsession *ses, const char *que);
 const char *gettime(void);
 
 #endif

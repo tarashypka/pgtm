@@ -3,7 +3,7 @@
 PG_H_FILES=$(pg_config --includedir)
    PG_LIBS=$(pg_config --libdir)
 
-gcc ./src/{app.cc,session.cc,tm.cc} \
+gcc -ansi ./src/{app.c,session.c,tm.c} \
     -o ./bin/app.o \
     -I$PG_H_FILES \
     -L$PG_LIBS \

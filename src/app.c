@@ -1,6 +1,6 @@
 #include "session.h"    /* struct PGsession, open, exec, close */
 #include <stdio.h>      /* NULL */
-#include "libpq-fe.h"   /* PGresult, PQclear */
+#include <libpq-fe.h>   /* PGresult, PQclear */
 
 #define HOST    "localhost"
 #define PORT    "5432"
@@ -11,7 +11,7 @@
 
 int main(int argc, char **argv)
 {
-    PGsession
+    struct PGsession
     ses_1 = { HOST, PORT,   "fly_db", USER, PWD, NULL, LOGS_PATH },
     ses_2 = { HOST, PORT, "hotel_db", USER, PWD, NULL, LOGS_PATH };
     open(&ses_1);
@@ -29,9 +29,11 @@ int main(int argc, char **argv)
     exec(&ses_2, "INSERT INTO hotel_booking " 
             "(id_, client_name_, hotel_name_, arrival_, departure_) VALUES "
             "(2, 'Kelmer', 'Nayara-Hotel', '05-02-16', '10-02-16')");
+    /*
     exec(&ses_2, "INSERT INTO hotel_booking " 
             "(id_, client_name_, hotel_name_, arrival_, departure_) VALUES "
             "(3, 'Kelmer', 'Toronto-Hotel', '11-02-16', '15-02-16')");
+    */
     exec(&ses_2, "COMMIT");
 
     close(&ses_1);

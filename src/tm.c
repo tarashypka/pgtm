@@ -1,6 +1,7 @@
-#include "session.h"    /* struct PGsession, setlogs, gettime, logs */
+#include "tm.h"         /* struct PGsession, gettime, tm_init, tm_commit */
+#include <stdlib.h>     /* exit, EXIT_FAILURE */
 #include <stdio.h>      /* NULL, printf, fopen, fclose */
-#include "libpq-fe.h"   /* PQfunctions, PGtypes */
+#include <libpq-fe.h>   /* PQfunctions, PGtypes */
 #include <string.h>     /* strcmp, strcat, strcpy */
 
 #define MAX_COHORTS     5
@@ -18,7 +19,7 @@ const char *states[10] =
 { "INIT", "QUERY", "WAIT", "ABORT", "COMMIT", "ABORTED", "COMMITTED" };
 
 static struct cohort {
-    PGsession *ses;
+    struct PGsession *ses;
     int state;
 } cohorts[MAX_COHORTS], *cnext = cohorts, coordinator = { NULL, INIT };
 
@@ -27,15 +28,16 @@ static FILE *logs;
 static const char *clogs = 
 "/home/deoxys37/Workspace/C/tm/logs/coordinator.logs";
 
-static cohort *get_cohort(const char *name)
+static struct cohort *get_cohort(const char *name)
 {
-    for (cohort *c = cnext; c > cohorts; c--)
+    struct cohort *c;
+    for (c = cnext; c > cohorts; c--)
         if (!strcmp((c-1)->ses->db_name, name))
             return c-1;
     return NULL;
 }
 
-static void set_state(cohort *c, int state)
+static void set_state(struct cohort *c, int state)
 {
     logs = fopen((c->ses) ? c->ses->logs : clogs, "a+"); 
     fprintf(logs, "%s: ", gettime());
@@ -44,7 +46,7 @@ static void set_state(cohort *c, int state)
     c->state = state;
 }
 
-void tm_init(PGsession *ses)
+void tm_init(struct PGsession *ses)
 {
     logs = fopen(ses->logs, "a+");
     if (get_cohort(ses->db_name) != NULL)
@@ -53,21 +55,22 @@ void tm_init(PGsession *ses)
         fprintf(logs, "tm_init: error: only %d cohorts allowed\n", 
                 MAX_COHORTS);
     else {
-        cohort c = { ses, INIT };
+        struct cohort c = { ses, INIT };
         *cnext++ = c;
     }
     fclose(logs);
 }
 
-void tm_commit(PGsession *ses)
+void tm_commit(struct PGsession *ses)
 {
     FILE *logs = fopen(ses->logs, "a+");
-    void commit_request(cohort *);
-    bool commit(cohort *), abort(cohort *);
+    void commit_request(struct cohort *);
+    bool commit(struct cohort *), abortr(struct cohort *);
+    struct cohort *c;
 
     set_state(get_cohort(ses->db_name), QUERY);
     fprintf(logs, "%s: ", gettime());
-    for (cohort *c = cnext; c > cohorts; c--)
+    for (c = cnext; c > cohorts; c--)
         if ((c-1)->state == INIT) {
             fprintf(logs, "cohorts not ready \n");
             fclose(logs);
@@ -87,7 +90,7 @@ void tm_commit(PGsession *ses)
             break;
         case ABORT:
             fprintf(logs, "tm_commit: abort all\n");
-            if (abort(cnext-1))
+            if (abortr(cnext-1))
                 set_state(&coordinator, ABORTED);
             break;
         default:
@@ -96,7 +99,7 @@ void tm_commit(PGsession *ses)
     fclose(logs);
 }
 
-void commit_request(cohort *c)
+void commit_request(struct cohort *c)
 {
     char *status, que[100] = "PREPARE TRANSACTION '";
 
@@ -118,7 +121,7 @@ void commit_request(cohort *c)
         set_state(&coordinator, QUERY);
 }
 
-bool commit(cohort *c)
+bool commit(struct cohort *c)
 {
     char *status, que[100] = "COMMIT PREPARED '";
 
@@ -129,7 +132,7 @@ bool commit(cohort *c)
     return (c->state == COMMIT) && (c == cohorts || commit(c-1));
 }
 
-bool abort(cohort *c)
+bool abortr(struct cohort *c)
 {
     char *status, que[100];
 
@@ -144,5 +147,5 @@ bool abort(cohort *c)
     strcat(que, "'");
     status = PQcmdStatus(exec(c->ses, que));
     set_state(c, !strcmp(status, "ROLLBACK PREPARED") ? ABORT : WAIT);
-    return (c->state == ABORT) && (c == cohorts || abort(c-1));
+    return (c->state == ABORT) && (c == cohorts || abortr(c-1));
 }
